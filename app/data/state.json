@@ -1,0 +1,19 @@
+{
+  "users": {
+    "1289691144": {
+      "name": "Серёжа",
+      "username": "SmayLick",
+      "role": "admin"
+    },
+    "1771884227": {
+      "name": "Daria Bobrovskaya",
+      "username": "pyyyxis",
+      "role": "member"
+    }
+  },
+  "payments": {
+    "2025-07": {
+      "1771884227": true
+    }
+  }
+}
