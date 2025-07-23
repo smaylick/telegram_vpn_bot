@@ -1,0 +1,8 @@
+version: "3.9"
+services:
+  vpn-bot:
+    build: .
+    env_file: app/.env
+    volumes:
+      - ./data:/app/app/data
+    restart: unless-stopped
