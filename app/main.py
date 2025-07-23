@@ -1,16 +1,19 @@
-import os, asyncio, logging
+import os, asyncio, logging, json, pathlib
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import (
     Message, CallbackQuery,
     ReplyKeyboardMarkup, KeyboardButton,
-    InlineKeyboardMarkup, InlineKeyboardButton
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardRemove
 )
 from aiogram.enums.parse_mode import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
+# модуль storage используем как источник пути к state.json
+from app import storage
 from app.storage import add_user, set_paid, list_members, unpaid
 from app.scheduler import (
     setup_scheduler,
@@ -35,7 +38,7 @@ logging.basicConfig(level=logging.INFO,
 USER_KB = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="ℹ️ Информация")],
-        [KeyboardButton(text="💰 Мой статус")],      # ← новая кнопка
+        [KeyboardButton(text="💰 Мой статус")],
         [KeyboardButton(text="🆘 Помощь")]
     ],
     resize_keyboard=True
@@ -45,11 +48,25 @@ ADMIN_KB = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📢 Напомнить всем")],
         [KeyboardButton(text="👥 Напомнить участнику")],
+        [KeyboardButton(text="📋 Участники")],
+        [KeyboardButton(text="🗑 Удалить участника")],
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="ℹ️ Управление")]
     ],
     resize_keyboard=True
 )
+
+# ── helper: удаление из state.json ───────────────────────────────────────
+def _remove_user(chat_id: int):
+    """Убираем пользователя из users и всех payments"""
+    with storage.DATA_PATH.open() as f:
+        data = json.load(f)
+    uid = str(chat_id)
+    data["users"].pop(uid, None)
+    for month in data["payments"]:
+        data["payments"][month].pop(uid, None)
+    with storage.DATA_PATH.open("w") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 # ── бот / диспетчер ──────────────────────────────────────────────────────
 bot = Bot(
@@ -63,28 +80,25 @@ dp.include_router(router)
 # ── handlers ─────────────────────────────────────────────────────────────
 @router.message(F.text == "/start")
 async def cmd_start(msg: Message):
-    # администратор всегда проходит
+    # администратор …
     if msg.from_user.id == ADMIN_ID:
         add_user(msg.from_user.id, msg.from_user.full_name, msg.from_user.username, "admin")
         await msg.answer(
             "👋 Привет, <b>администратор</b>!\n"
             "• 📢 Напомнить всем — массовая рассылка\n"
             "• 👥 Напомнить участнику — выбрать любого\n"
-            "• 📊 Статистика — кто оплатил / нет\n"
-            "• ℹ️ Управление — эта подсказка",
+            "• 📋 / 🗑  — список / удаление\n"
+            "• 📊 Статистика — кто оплатил / нет",
             reply_markup=ADMIN_KB
         )
         return
 
     # ---- участник ----
     members = list_members(ADMIN_ID)
-
-    # уже зарегистрирован — просто покажем клавиатуру/текст
     if str(msg.from_user.id) in members:
         await msg.answer(build_welcome_text(), reply_markup=USER_KB)
         return
 
-    # проверяем лимит
     if len(members) >= MAX_MEMBERS:
         kb = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(
@@ -93,15 +107,17 @@ async def cmd_start(msg: Message):
             )]]
         )
         await msg.answer(
-            "😔 К сожалению, слот свободных подключений исчерпан.\n"
-            "Нажмите кнопку ниже, чтобы связаться с администратором.",
+            "😔 Свободных слотов нет. Напишите администратору.",
             reply_markup=kb
         )
         return
 
-    # место есть — регистрируем
     add_user(msg.from_user.id, msg.from_user.full_name, msg.from_user.username, "member")
     await msg.answer(build_welcome_text(), reply_markup=USER_KB)
+    await bot.send_message(
+        ADMIN_ID,
+        f"➕ <a href='tg://user?id={msg.from_user.id}'>{msg.from_user.full_name}</a> подключился."
+    )
 
 # ---------- УЧАСТНИКИ ----------------------------------------------------
 @router.message(F.text.in_({"ℹ️ Информация", "/info"}))
@@ -111,8 +127,7 @@ async def msg_info(msg: Message):
 @router.message(F.text.in_({"💰 Мой статус", "/my_status"}))
 async def msg_my_status(msg: Message):
     month = datetime.now().strftime("%Y-%m")
-    is_paid = msg.from_user.id not in unpaid(month, ADMIN_ID)
-    status = "✅ Оплачено" if is_paid else "⏳ Ожидается"
+    status = "✅ Оплачено" if msg.from_user.id not in unpaid(month, ADMIN_ID) else "⏳ Ожидается"
     await msg.answer(f"<b>Статус за {month}</b>: {status}")
 
 @router.message(F.text == "🆘 Помощь")
@@ -157,8 +172,69 @@ async def admin_pick_member(msg: Message):
         [InlineKeyboardButton(text=info["name"], callback_data=f"forceping:{uid}")]
         for uid, info in members.items()
     ]
-    kb = InlineKeyboardMarkup(inline_keyboard=rows)
-    await msg.answer("Выберите участника для напоминания:", reply_markup=kb)
+    await msg.answer("Выберите участника для напоминания:",
+                     reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+@router.message(F.text == "📋 Участники", F.from_user.id == ADMIN_ID)
+async def admin_list_members(msg: Message):
+    rows = [
+        [InlineKeyboardButton(text=info["name"], url=f"tg://user?id={uid}")]
+        for uid, info in list_members(ADMIN_ID).items()
+    ] or [[InlineKeyboardButton(text="(пусто)", callback_data="noop")]]
+    await msg.answer("Все участники:",
+                     reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+# --- удалить участника ---------------------------------------------------
+@router.message(F.text == "🗑 Удалить участника", F.from_user.id == ADMIN_ID)
+async def admin_delete_member_pick(msg: Message):
+    members = list_members(ADMIN_ID)
+    rows = [
+        [InlineKeyboardButton(text=f"❌ {info['name']}", callback_data=f"delask:{uid}")]
+        for uid, info in members.items()
+    ] or [[InlineKeyboardButton(text="(пусто)", callback_data="noop")]]
+    await msg.answer("Кого удалить?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+@router.callback_query(F.data.startswith("delask:"))
+async def cb_del_confirm(call: CallbackQuery):
+    uid = call.data.split(":")[1]
+    info = list_members(ADMIN_ID).get(uid)
+    if not info:
+        await call.answer("Участник уже удалён.", show_alert=True)
+        return
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да", callback_data=f"delyes:{uid}"),
+                InlineKeyboardButton(text="❌ Нет", callback_data="delno")
+            ]
+        ]
+    )
+    await call.message.edit_text(
+        f"Удалить <b>{info['name']}</b> из списка участников?",
+        reply_markup=kb
+    )
+    await call.answer()
+
+@router.callback_query(F.data.startswith("delyes:"))
+async def cb_del_yes(call: CallbackQuery):
+    uid = int(call.data.split(":")[1])
+    _remove_user(uid)
+    await call.message.edit_text("🗑 Участник удалён.")
+    # убираем клавиатуру у пользователя
+    try:
+        await bot.send_message(
+            uid,
+            "⛔️ Ваш доступ к VPN отключён администратором.\nНажмите /start, чтобы запросить подключение снова.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    except Exception:
+        pass
+    await call.answer()
+
+@router.callback_query(F.data == "delno")
+async def cb_del_no(call: CallbackQuery):
+    await call.message.edit_text("Удаление отменено.")
+    await call.answer()
 
 @router.callback_query(F.data.startswith("forceping:"))
 async def cb_force_ping(call: CallbackQuery):
@@ -174,10 +250,11 @@ async def admin_stats_button(msg: Message):
 async def admin_help_button(msg: Message):
     await msg.answer(
         "📋 <b>Команды администратора</b>\n"
-        "• 📢 Напомнить всем — массовая рассылка\n"
-        "• 👥 Напомнить участнику — выбрать любого\n"
-        "• 📊 Статистика — отчёт\n"
-        "• /summary, /remind_now — те же действия текстом",
+        "• 📢 Напомнить всем\n"
+        "• 👥 Напомнить участнику\n"
+        "• 📋 Участники — открыть чат\n"
+        "• 🗑 Удалить участника\n"
+        "• 📊 Статистика",
         reply_markup=ADMIN_KB
     )
 
