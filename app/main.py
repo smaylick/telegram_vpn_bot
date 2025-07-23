@@ -112,11 +112,19 @@ async def cmd_start(msg: Message):
         )
         return
 
-    add_user(msg.from_user.id, msg.from_user.full_name, msg.from_user.username, "member")
-    await msg.answer(build_welcome_text(), reply_markup=USER_KB)
+    await msg.answer("🔄 Заявка на подключение отправлена администратору. Ожидайте решения.")
+
+    kb_admin = InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Принять", callback_data=f"join_ok:{msg.from_user.id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"join_no:{msg.from_user.id}")
+        ]]
+    )
     await bot.send_message(
         ADMIN_ID,
-        f"➕ <a href='tg://user?id={msg.from_user.id}'>{msg.from_user.full_name}</a> подключился."
+        f"⚠️ Запрос на подключение от "
+        f"<a href='tg://user?id={msg.from_user.id}'>{msg.from_user.full_name}</a>",
+        reply_markup=kb_admin
     )
 
 # ---------- УЧАСТНИКИ ----------------------------------------------------
@@ -234,6 +242,41 @@ async def cb_del_yes(call: CallbackQuery):
 @router.callback_query(F.data == "delno")
 async def cb_del_no(call: CallbackQuery):
     await call.message.edit_text("Удаление отменено.")
+    await call.answer()
+
+# -------- согласие / отказ админа на подключение --------
+@router.callback_query(F.data.startswith("join_ok:"))
+async def cb_join_ok(call: CallbackQuery):
+    uid = int(call.data.split(":")[1])
+
+    if str(uid) in list_members(ADMIN_ID):           # уже добавлен
+        await call.answer("Уже в списке.", show_alert=True)
+        return
+
+    chat = await bot.get_chat(uid)                   # имя/ник для storage
+    add_user(uid, chat.full_name, chat.username, "member")
+
+    await bot.send_message(uid, build_welcome_text(), reply_markup=USER_KB)
+    await call.message.edit_text("✅ Участник добавлен.")
+    await call.answer()
+
+@router.callback_query(F.data.startswith("join_no:"))
+async def cb_join_no(call: CallbackQuery):
+    uid = int(call.data.split(":")[1])
+
+    kb_no = InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="Написать админу", url=f"tg://user?id={ADMIN_ID}")
+        ]]
+    )
+
+    await bot.send_message(
+        uid,
+        "❌ Администратор отклонил заявку на подключение.\n"
+        "Свяжитесь с ним для уточнения.",
+        reply_markup=kb_no
+    )
+    await call.message.edit_text("🚫 Заявка отклонена.")
     await call.answer()
 
 @router.callback_query(F.data.startswith("forceping:"))
