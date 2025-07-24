@@ -10,6 +10,7 @@ from aiogram.types import (
 )
 from aiogram.enums.parse_mode import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.exceptions import TelegramBadRequest
 from dotenv import load_dotenv
 
 # модуль storage используем как источник пути к state.json
@@ -52,6 +53,7 @@ ADMIN_KB = ReplyKeyboardMarkup(
         [KeyboardButton(text="🗑 Удалить участника")],
         [KeyboardButton(text="➕ Добавить участника")],
         [KeyboardButton(text="✅ Отметить оплату")],
+        [KeyboardButton(text="🚀 Добавить 4‑х")],
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="ℹ️ Управление")]
     ],
@@ -59,6 +61,7 @@ ADMIN_KB = ReplyKeyboardMarkup(
 )
 
 # ── helper: удаление из state.json ───────────────────────────────────────
+
 def _remove_user(chat_id: int):
     """Убираем пользователя из users и всех payments"""
     with storage.DATA_PATH.open() as f:
@@ -69,6 +72,25 @@ def _remove_user(chat_id: int):
         data["payments"][month].pop(uid, None)
     with storage.DATA_PATH.open("w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# ── helper: добавить или обновить участника ──────────────────────────────
+def _add_or_update_user(chat_id: int, name: str, username: str | None):
+    """
+    Добавляем участника, либо дописываем username,
+    если пользователь уже есть, но без @username.
+    """
+    data = storage._load()
+    uid = str(chat_id)
+    user = data["users"].get(uid)
+    if user is None:
+        # нового пользователя сразу сохраняем полностью
+        data["users"][uid] = {"name": name, "username": username, "role": "member"}
+    else:
+        # пользователь уже есть — обновим username, если он был пустой
+        if not user.get("username") and username:
+            user["username"] = username
+    storage._save(data)
 
 # ── helper: трекинг добавления участника ────────────────────────────────
 PENDING_ADD: set[int] = set()   # chat_ids админов, ожидающих ID участника
@@ -97,6 +119,7 @@ async def cmd_start(msg: Message):
             "• 🗑 Удалить участника\n"
             "• ➕ Добавить участника\n"
             "• ✅ Отметить оплату — вручную отметить платеж\n"
+            "• 🚀 Добавить 4‑х участников\n"
             "• 📊 Статистика",
             reply_markup=ADMIN_KB
         )
@@ -198,15 +221,34 @@ async def admin_pick_member(msg: Message):
 
 @router.message(F.text == "📋 Участники", F.from_user.id == ADMIN_ID)
 async def admin_list_members(msg: Message):
-    """Список всех участников с переходом в чат"""
-    rows = [
-        [InlineKeyboardButton(text=info["name"], url=f"tg://user?id={uid}")]
-        for uid, info in list_members(ADMIN_ID).items()
-    ] or [[InlineKeyboardButton(text="(пусто)", callback_data="noop")]]
-    await msg.answer(
-        "Все участники:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
-    )
+    """Показать список участников.
+    Ссылку-кнопку делаем только если у пользователя есть username.
+    Иначе выводим упоминание текстом без кнопки, чтобы избежать
+    ошибки BUTTON_USER_INVALID у Telegram.
+    """
+    members = list_members(ADMIN_ID)
+
+    text_lines: list[str] = []
+    kb_rows: list[list[InlineKeyboardButton]] = []
+
+    for uid, info in members.items():
+        name      = info["name"]
+        username  = info.get("username")
+
+        # если есть @username ‒ делаем обычную t.me ссылку‑кнопку
+        if username:
+            kb_rows.append(
+                [InlineKeyboardButton(text=name, url=f"https://t.me/{username}")]
+            )
+        else:
+            # иначе просто добавляем строчку в текст
+            text_lines.append(f"• <a href='tg://user?id={uid}'>{name}</a>")
+
+    # формируем текст; если кнопок нет, добавляем заглушку
+    text = "Все участники:\n" + ("\n".join(text_lines) if text_lines else "—")
+
+    kb  = InlineKeyboardMarkup(inline_keyboard=kb_rows) if kb_rows else None
+    await msg.answer(text, reply_markup=kb, disable_web_page_preview=True)
 
 @router.message(F.text == "➕ Добавить участника", F.from_user.id == ADMIN_ID)
 async def admin_add_user_start(msg: Message):
@@ -220,6 +262,12 @@ async def admin_add_user_process(msg: Message):
     parts = msg.text.strip().split(maxsplit=1)
     if not parts:
         await msg.answer("⚠️ Сначала укажите ID.")
+        return
+
+    # если сообщение НЕ начинается с ID → выходим из режима добавления
+    if not parts or not parts[0].isdigit():
+        PENDING_ADD.discard(msg.from_user.id)
+        # передаём управление дальше, чтобы другие хендлеры обработали кнопку
         return
 
     try:
@@ -324,6 +372,35 @@ async def cb_mark_paid(call: CallbackQuery):
     await call.message.edit_text("✅ Оплата отмечена.")
     await call.answer("Отметил как оплачено.")
 
+@router.message(F.text == "🚀 Добавить 4‑х", F.from_user.id == ADMIN_ID)
+async def admin_bulk_add(msg: Message):
+    """Одной кнопкой добавить заранее известную четвёрку участников
+    (и/или дописать им username, если они уже есть)."""
+    predef = [
+        (645435497,  "Сергей Рыбин",          "rybinsa"),
+        (1592850166, "Анастасия Стародубцева","starodubseva"),
+        (1444767422, "Дарья Русанова",        "d_rusanova"),
+        (1009609868, "Данила Риженко",        "raketa2332"),
+    ]
+
+    added, updated = [], []
+    for uid, name, username in predef:
+        before = list_members(ADMIN_ID).get(str(uid))
+        _add_or_update_user(uid, name, username)
+
+        if before is None:
+            added.append(name)
+        elif not before.get("username") and username:
+            updated.append(name)
+
+    parts = []
+    if added:
+        parts.append("добавлены: " + ", ".join(added))
+    if updated:
+        parts.append("обновлён username: " + ", ".join(updated))
+
+    await msg.answer("✅ " + "; ".join(parts) if parts else "Все четыре участника уже присутствуют и актуальны.")
+
 # -------- согласие / отказ админа на подключение --------
 @router.callback_query(F.data.startswith("join_ok:"))
 async def cb_join_ok(call: CallbackQuery):
@@ -362,8 +439,20 @@ async def cb_join_no(call: CallbackQuery):
 @router.callback_query(F.data.startswith("forceping:"))
 async def cb_force_ping(call: CallbackQuery):
     target_id = int(call.data.split(":")[1])
-    await bot.send_message(target_id, build_reminder_text(), reply_markup=REMINDER_KB)
-    await call.answer("Принудительное напоминание отправлено!")
+    try:
+        await bot.send_message(
+            target_id,
+            build_reminder_text(),
+            reply_markup=REMINDER_KB
+        )
+        await call.answer("Принудительное напоминание отправлено!")
+    except TelegramBadRequest:
+        # пользователь ещё не писал боту → сообщение не доставить
+        await call.answer(
+            "❌ Не удалось отправить: пользователь не открывал чат с ботом.",
+            show_alert=True
+        )
+        # ничего больше не делаем, чтобы бот не падал
 
 @router.message(F.text == "📊 Статистика", F.from_user.id == ADMIN_ID)
 async def admin_stats_button(msg: Message):
@@ -379,6 +468,7 @@ async def admin_help_button(msg: Message):
         "• 🗑 Удалить участника\n"
         "• ➕ Добавить участника\n"
         "• ✅ Отметить оплату — вручную отметить платеж\n"
+        "• 🚀 Добавить 4‑х участников\n"
         "• 📊 Статистика",
         reply_markup=ADMIN_KB
     )
@@ -386,8 +476,18 @@ async def admin_help_button(msg: Message):
 @router.callback_query(F.data.startswith("ping:"))
 async def cb_ping(call: CallbackQuery):
     target_id = int(call.data.split(":")[1])
-    await bot.send_message(target_id, build_reminder_text(), reply_markup=REMINDER_KB)
-    await call.answer("Напоминание отправлено!")
+    try:
+        await bot.send_message(
+            target_id,
+            build_reminder_text(),
+            reply_markup=REMINDER_KB
+        )
+        await call.answer("Напоминание отправлено!")
+    except TelegramBadRequest:
+        await call.answer(
+            "❌ Не удалось отправить: пользователь не открывал чат с ботом.",
+            show_alert=True
+        )
 
 # текстовые команды admin
 @router.message(F.text == "/summary", F.from_user.id == ADMIN_ID)
