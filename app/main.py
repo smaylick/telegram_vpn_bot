@@ -50,6 +50,7 @@ ADMIN_KB = ReplyKeyboardMarkup(
         [KeyboardButton(text="👥 Напомнить участнику")],
         [KeyboardButton(text="📋 Участники")],
         [KeyboardButton(text="🗑 Удалить участника")],
+        [KeyboardButton(text="➕ Добавить участника")],
         [KeyboardButton(text="✅ Отметить оплату")],
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="ℹ️ Управление")]
@@ -69,6 +70,9 @@ def _remove_user(chat_id: int):
     with storage.DATA_PATH.open("w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+# ── helper: трекинг добавления участника ────────────────────────────────
+PENDING_ADD: set[int] = set()   # chat_ids админов, ожидающих ID участника
+
 # ── бот / диспетчер ──────────────────────────────────────────────────────
 bot = Bot(
     BOT_TOKEN,
@@ -85,11 +89,15 @@ async def cmd_start(msg: Message):
     if msg.from_user.id == ADMIN_ID:
         add_user(msg.from_user.id, msg.from_user.full_name, msg.from_user.username, "admin")
         await msg.answer(
-            "👋 Привет, <b>администратор</b>!\n"
-            "• 📢 Напомнить всем — массовая рассылка\n"
-            "• 👥 Напомнить участнику — выбрать любого\n"
-            "• 📋 / 🗑  — список / удаление\n"
-            "• 📊 Статистика — кто оплатил / нет",
+            "👋 Привет, <b>администратор</b>!\n\n"
+            "📋 <b>Команды администратора</b>\n"
+            "• 📢 Напомнить всем\n"
+            "• 👥 Напомнить участнику\n"
+            "• 📋 Участники — открыть чат\n"
+            "• 🗑 Удалить участника\n"
+            "• ➕ Добавить участника\n"
+            "• ✅ Отметить оплату — вручную отметить платеж\n"
+            "• 📊 Статистика",
             reply_markup=ADMIN_KB
         )
         return
@@ -171,29 +179,68 @@ async def msg_paid(msg: Message):
 # ---------- АДМИН --------------------------------------------------------
 @router.message(F.text == "📢 Напомнить всем", F.from_user.id == ADMIN_ID)
 async def admin_remind_all(msg: Message):
+    """Массовое напоминание всем должникам"""
     await remind_members(bot, ADMIN_ID)
     await msg.answer("✅ Напоминание всем отправлено.")
 
 @router.message(F.text == "👥 Напомнить участнику", F.from_user.id == ADMIN_ID)
 async def admin_pick_member(msg: Message):
+    """Выбрать конкретного участника для напоминания"""
     members = list_members(ADMIN_ID)
     rows = [
         [InlineKeyboardButton(text=info["name"], callback_data=f"forceping:{uid}")]
         for uid, info in members.items()
-    ]
-    await msg.answer("Выберите участника для напоминания:",
-                     reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    ] or [[InlineKeyboardButton(text="(пусто)", callback_data="noop")]]
+    await msg.answer(
+        "Выберите участника для напоминания:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+    )
 
 @router.message(F.text == "📋 Участники", F.from_user.id == ADMIN_ID)
 async def admin_list_members(msg: Message):
+    """Список всех участников с переходом в чат"""
     rows = [
         [InlineKeyboardButton(text=info["name"], url=f"tg://user?id={uid}")]
         for uid, info in list_members(ADMIN_ID).items()
     ] or [[InlineKeyboardButton(text="(пусто)", callback_data="noop")]]
-    await msg.answer("Все участники:",
-                     reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    await msg.answer(
+        "Все участники:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+    )
 
-# --- удалить участника ---------------------------------------------------
+@router.message(F.text == "➕ Добавить участника", F.from_user.id == ADMIN_ID)
+async def admin_add_user_start(msg: Message):
+    await msg.answer(
+        "✏️ Отправьте ID и имя участника через пробел.\n"
+        "Пример: <code>123456789 Иван</code>")
+    PENDING_ADD.add(msg.from_user.id)
+
+@router.message(lambda m: m.from_user.id == ADMIN_ID and m.from_user.id in PENDING_ADD)
+async def admin_add_user_process(msg: Message):
+    parts = msg.text.strip().split(maxsplit=1)
+    if not parts:
+        await msg.answer("⚠️ Сначала укажите ID.")
+        return
+
+    try:
+        uid = int(parts[0])
+    except ValueError:
+        await msg.answer("⚠️ ID должен быть числом.")
+        return
+
+    name = parts[1] if len(parts) > 1 else f"User {uid}"
+
+    if str(uid) in list_members(ADMIN_ID):
+        await msg.answer("Этот пользователь уже есть в списке.")
+        PENDING_ADD.discard(msg.from_user.id)
+        return
+
+    add_user(uid, name, None, "member")
+    month = datetime.now().strftime("%Y-%m")       # ещё нет оплаты
+    # уведомляем админа
+    await msg.answer(f"✅ Добавлен участник <b>{name}</b> (ID {uid}).")
+    PENDING_ADD.discard(msg.from_user.id)
+
 @router.message(F.text == "🗑 Удалить участника", F.from_user.id == ADMIN_ID)
 async def admin_delete_member_pick(msg: Message):
     members = list_members(ADMIN_ID)
@@ -275,10 +322,6 @@ async def cb_mark_paid(call: CallbackQuery):
     set_paid(uid, month)
 
     await call.message.edit_text("✅ Оплата отмечена.")
-    await bot.send_message(
-        uid,
-        f"✅ Администратор отметил вашу оплату за {month}. Спасибо!"
-    )
     await call.answer("Отметил как оплачено.")
 
 # -------- согласие / отказ админа на подключение --------
@@ -334,6 +377,7 @@ async def admin_help_button(msg: Message):
         "• 👥 Напомнить участнику\n"
         "• 📋 Участники — открыть чат\n"
         "• 🗑 Удалить участника\n"
+        "• ➕ Добавить участника\n"
         "• ✅ Отметить оплату — вручную отметить платеж\n"
         "• 📊 Статистика",
         reply_markup=ADMIN_KB
