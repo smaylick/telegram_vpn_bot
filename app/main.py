@@ -50,6 +50,7 @@ ADMIN_KB = ReplyKeyboardMarkup(
         [KeyboardButton(text="👥 Напомнить участнику")],
         [KeyboardButton(text="📋 Участники")],
         [KeyboardButton(text="🗑 Удалить участника")],
+        [KeyboardButton(text="✅ Отметить оплату")],
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="ℹ️ Управление")]
     ],
@@ -239,10 +240,46 @@ async def cb_del_yes(call: CallbackQuery):
         pass
     await call.answer()
 
+
 @router.callback_query(F.data == "delno")
 async def cb_del_no(call: CallbackQuery):
     await call.message.edit_text("Удаление отменено.")
     await call.answer()
+
+# ---------- вручную отметить оплату -------------------------------------
+@router.message(F.text == "✅ Отметить оплату", F.from_user.id == ADMIN_ID)
+async def admin_mark_paid_pick(msg: Message):
+    month   = datetime.now().strftime("%Y-%m")
+    debtors = unpaid(month, ADMIN_ID)
+
+    if not debtors:
+        await msg.answer("🎉 Все участники уже отмечены как оплатившие.")
+        return
+
+    rows = [
+        [InlineKeyboardButton(
+            text=list_members(ADMIN_ID)[str(uid)]["name"],
+            callback_data=f"markpaid:{uid}"
+        )] for uid in debtors
+    ]
+    await msg.answer(
+        f"Кто уже оплатил за {month}?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+    )
+
+
+@router.callback_query(F.data.startswith("markpaid:"))
+async def cb_mark_paid(call: CallbackQuery):
+    uid   = int(call.data.split(":")[1])
+    month = datetime.now().strftime("%Y-%m")
+    set_paid(uid, month)
+
+    await call.message.edit_text("✅ Оплата отмечена.")
+    await bot.send_message(
+        uid,
+        f"✅ Администратор отметил вашу оплату за {month}. Спасибо!"
+    )
+    await call.answer("Отметил как оплачено.")
 
 # -------- согласие / отказ админа на подключение --------
 @router.callback_query(F.data.startswith("join_ok:"))
@@ -297,6 +334,7 @@ async def admin_help_button(msg: Message):
         "• 👥 Напомнить участнику\n"
         "• 📋 Участники — открыть чат\n"
         "• 🗑 Удалить участника\n"
+        "• ✅ Отметить оплату — вручную отметить платеж\n"
         "• 📊 Статистика",
         reply_markup=ADMIN_KB
     )
