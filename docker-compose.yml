@@ -1,9 +1,15 @@
-version: "3.9"
-
 services:
   vpn-bot:
     build: .
-    env_file: app/.env          # берёт переменные с хоста
+    env_file: app/.env
     volumes:
-      - ./data:/app/app/data    # чтобы state.json сохранялся вне контейнера
+      - ./data:/app/app/data
+    restart: unless-stopped
+
+  vpn-bot-test:
+    profiles: ["test"]
+    build: .
+    env_file: app/.env.test
+    volumes:
+      - ./data-test:/app/app/data
     restart: unless-stopped

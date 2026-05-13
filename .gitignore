@@ -16,7 +16,19 @@ ENV/
 # --- Environment & secrets -----------------------------------------
 # любые файлы, начинающиеся с «.env» в любом каталоге
 .env
+.env.*
 **/.env
+**/.env.*
+# но шаблоны держим в репе
+!.env.example
+!**/.env.example
+!.env.test.example
+!**/.env.test.example
+
+# --- Data ----------------------------------------------------------
+# Host-side bind mounts for the docker volumes. Not the package's app/data/.
+/data/
+/data-test/
 
 # --- IDE / OS мусор -------------------------------------------------
 .idea/
