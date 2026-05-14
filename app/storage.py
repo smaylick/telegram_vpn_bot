@@ -86,6 +86,31 @@ def add_user(chat_id: int, name: str, username: str | None, role: str = "member"
         _save(data)
 
 
+def update_user_contact(chat_id: int, name: str | None, username: str | None) -> bool:
+    """Update name/username of an existing user if values changed.
+
+    Returns True when something was written. No-op if the user is unknown
+    or both fields already match.
+    """
+    data = _load()
+    uid = str(chat_id)
+    user = data["users"].get(uid)
+    if user is None:
+        return False
+
+    changed = False
+    if name and user.get("name") != name:
+        user["name"] = name
+        changed = True
+    if username and user.get("username") != username:
+        user["username"] = username
+        changed = True
+
+    if changed:
+        _save(data)
+    return changed
+
+
 def remove_user(chat_id: int) -> None:
     data = _load()
     uid = str(chat_id)

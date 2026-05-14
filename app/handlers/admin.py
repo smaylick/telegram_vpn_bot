@@ -46,8 +46,11 @@ async def admin_pick_member(msg: Message):
 @router.message(F.text == "📋 Участники", F.from_user.id == ADMIN_ID)
 async def admin_list_members(msg: Message):
     members = list_members(ADMIN_ID)
+    if not members:
+        await msg.answer("Участников пока нет.")
+        return
 
-    text_lines: list[str] = []
+    no_username_lines: list[str] = []
     kb_rows: list[list[InlineKeyboardButton]] = []
 
     for uid, info in members.items():
@@ -56,9 +59,19 @@ async def admin_list_members(msg: Message):
         if username:
             kb_rows.append([InlineKeyboardButton(text=name, url=f"https://t.me/{username}")])
         else:
-            text_lines.append(f"• <a href='tg://user?id={uid}'>{name}</a>")
+            no_username_lines.append(
+                f"• <b>{name}</b> (ID <code>{uid}</code>) — <i>нет @username, попроси нажать /start</i>"
+            )
 
-    text = "Все участники:\n" + ("\n".join(text_lines) if text_lines else "—")
+    text_parts = ["<b>Все участники:</b>"]
+    if no_username_lines:
+        text_parts.append("")
+        text_parts.extend(no_username_lines)
+    if kb_rows:
+        text_parts.append("")
+        text_parts.append("↓ Открыть чат:")
+    text = "\n".join(text_parts)
+
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows) if kb_rows else None
     await msg.answer(text, reply_markup=kb, disable_web_page_preview=True)
 

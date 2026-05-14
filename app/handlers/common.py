@@ -3,7 +3,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from app.config import ADMIN_ID
 from app.keyboards import ADMIN_KB, USER_KB
-from app.storage import add_user, list_members
+from app.storage import add_user, list_members, update_user_contact
 from app.texts import build_welcome_text
 
 router = Router()
@@ -13,6 +13,7 @@ ADMIN_HELP_TEXT = (
     "📋 <b>Команды администратора</b>\n"
     "• 📢 Напомнить всем\n"
     "• 👥 Напомнить участнику\n"
+    "• 📣 Объявление — разослать сообщение всем участникам\n"
     "• 📋 Участники — открыть чат\n"
     "• 🗑 Удалить участника\n"
     "• ➕ Добавить участника\n"
@@ -36,6 +37,9 @@ async def cmd_start(msg: Message):
 
     members = list_members(ADMIN_ID)
     if str(msg.from_user.id) in members:
+        update_user_contact(
+            msg.from_user.id, msg.from_user.full_name, msg.from_user.username
+        )
         await msg.answer(build_welcome_text(), reply_markup=USER_KB)
         return
 

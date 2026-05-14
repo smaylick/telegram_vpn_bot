@@ -1,4 +1,5 @@
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
@@ -61,9 +62,30 @@ async def process_add(msg: Message, state: FSMContext):
         await state.clear()
         return
 
-    add_user(uid, name, None, "member")
+    note = ""
+    try:
+        chat = await msg.bot.get_chat(uid)
+        real_name = chat.full_name or name
+        real_username = chat.username
+        add_user(uid, real_name, real_username, "member")
+        display_name = real_name
+        if not real_username:
+            note = (
+                "\n\nℹ️ Username у пользователя не выставлен. "
+                "Когда он поставит @username в Telegram — попроси нажать /start, "
+                "и он станет кликабельным в списке."
+            )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        add_user(uid, name, None, "member")
+        display_name = name
+        note = (
+            "\n\n⚠️ Не удалось подтянуть профиль автоматически. "
+            "Попроси пользователя нажать /start в боте — тогда он станет "
+            "кликабельным в списке участников."
+        )
+
     await msg.answer(
-        f"✅ Добавлен участник <b>{name}</b> (ID <code>{uid}</code>).",
+        f"✅ Добавлен участник <b>{display_name}</b> (ID <code>{uid}</code>).{note}",
         reply_markup=ADMIN_KB,
     )
     await state.clear()

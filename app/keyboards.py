@@ -19,6 +19,7 @@ ADMIN_KB = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📢 Напомнить всем")],
         [KeyboardButton(text="👥 Напомнить участнику")],
+        [KeyboardButton(text="📣 Объявление")],
         [KeyboardButton(text="📋 Участники")],
         [KeyboardButton(text="🗑 Удалить участника")],
         [KeyboardButton(text="➕ Добавить участника")],
