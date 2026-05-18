@@ -51,16 +51,15 @@ REMINDER_KB = InlineKeyboardMarkup(
 def info_list_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🟢 WireGuard", callback_data="info:wg")],
+            [InlineKeyboardButton(text="🟣 AmneziaVPN • WireGuard", callback_data="info:wg")],
             [InlineKeyboardButton(text="🟣 AmneziaVPN • X-Ray", callback_data="info:amnezia")],
-            [InlineKeyboardButton(text="🔵 3X-UI • VLESS", callback_data="info:xray")],
+            [InlineKeyboardButton(text="🔵 3X-UI • VLESS напрямую ⭐", callback_data="info:xray_direct")],
+            [InlineKeyboardButton(text="🔵 3X-UI • VLESS двойной хоп", callback_data="info:xray")],
         ]
     )
 
 
-def info_back_kb(with_key_button: bool = False) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-    if with_key_button:
-        rows.append([InlineKeyboardButton(text="🔑 Стартовый ключ", callback_data="info:amnezia_key")])
-    rows.append([InlineKeyboardButton(text="← Назад к списку", callback_data="info:list")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+def info_back_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="← Назад к списку", callback_data="info:list")]]
+    )

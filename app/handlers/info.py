@@ -3,7 +3,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, Message
 
 from app.keyboards import info_back_kb, info_list_kb
-from app.texts import INFO_INTRO, INFO_TEXTS, INFO_XRAY_KEY
+from app.texts import INFO_INTRO, INFO_TEXTS
 
 router = Router()
 
@@ -26,7 +26,7 @@ async def cb_info_list(call: CallbackQuery):
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("info:") & ~F.data.in_({"info:list", "info:amnezia_key"}))
+@router.callback_query(F.data.startswith("info:") & ~F.data.in_({"info:list"}))
 async def cb_info_show(call: CallbackQuery):
     key = call.data.split(":", 1)[1]
     text = INFO_TEXTS.get(key)
@@ -34,20 +34,9 @@ async def cb_info_show(call: CallbackQuery):
         await call.answer("Раздел не найден.", show_alert=True)
         return
 
-    kb = info_back_kb(with_key_button=(key == "amnezia"))
+    kb = info_back_kb()
     try:
         await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
     except TelegramBadRequest:
         await call.message.answer(text, reply_markup=kb, disable_web_page_preview=True)
     await call.answer()
-
-
-@router.callback_query(F.data == "info:amnezia_key")
-async def cb_info_amnezia_key(call: CallbackQuery):
-    await call.message.answer(
-        "🔑 <b>Стартовый ключ AmneziaVPN</b>\n"
-        "Скопируйте строку ниже и вставьте в приложение (шаг 2 инструкции):\n\n"
-        f"{INFO_XRAY_KEY}",
-        disable_web_page_preview=True,
-    )
-    await call.answer("Ключ отправлен ниже.")
