@@ -4,6 +4,7 @@ from app.handlers import (
     admin,
     admin_add,
     admin_broadcast,
+    admin_dm,
     admin_price,
     common,
     info,
@@ -19,6 +20,7 @@ def build_router() -> Router:
     router.include_router(admin_add.router)
     router.include_router(admin_price.router)
     router.include_router(admin_broadcast.router)
+    router.include_router(admin_dm.router)
     router.include_router(common.router)
     router.include_router(info.router)
     router.include_router(member.router)
