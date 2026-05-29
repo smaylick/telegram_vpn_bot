@@ -53,6 +53,12 @@ def info_list_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="🟣 AmneziaVPN • WireGuard", callback_data="info:wg")],
             [InlineKeyboardButton(text="🟣 AmneziaVPN • X-Ray", callback_data="info:amnezia")],
+            [
+                InlineKeyboardButton(
+                    text="🟣 AmneziaVPN • X-Ray • Казахстан",
+                    callback_data="info:amnezia_kz",
+                )
+            ],
             [InlineKeyboardButton(text="🔵 3X-UI • VLESS напрямую ⭐", callback_data="info:xray_direct")],
             [InlineKeyboardButton(text="🔵 3X-UI • VLESS двойной хоп", callback_data="info:xray")],
         ]
