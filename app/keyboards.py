@@ -51,16 +51,24 @@ REMINDER_KB = InlineKeyboardMarkup(
 def info_list_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🟣 AmneziaVPN • WireGuard", callback_data="info:wg")],
-            [InlineKeyboardButton(text="🟣 AmneziaVPN • X-Ray", callback_data="info:amnezia")],
             [
                 InlineKeyboardButton(
-                    text="🟣 AmneziaVPN • X-Ray • Казахстан",
-                    callback_data="info:amnezia_kz",
+                    text="🟣 Amnezia • X-Ray • Астана ⭐",
+                    callback_data="info:amnezia_xray_kz",
                 )
             ],
-            [InlineKeyboardButton(text="🔵 3X-UI • VLESS напрямую ⭐", callback_data="info:xray_direct")],
-            [InlineKeyboardButton(text="🔵 3X-UI • VLESS двойной хоп", callback_data="info:xray")],
+            [
+                InlineKeyboardButton(
+                    text="🔵 3X-UI • X-Ray • Астана",
+                    callback_data="info:xray_kz",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🟣 Amnezia • AmneziaWG • Германия",
+                    callback_data="info:wg_de",
+                )
+            ],
         ]
     )
 
